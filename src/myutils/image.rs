@@ -257,3 +257,18 @@ pub fn sum_pixel(integral: &Vec<Vec<u64>>, coord: &Coordinate) -> u64 {
 
     integral[y2][x2] + integral[y1][x1] - integral[y1][x2] - integral[y2][x1]
 }
+
+/// 合并多个坐标为一个大的坐标区域
+pub fn merge_coordinates(coordinates: &Vec<Coordinate>, extend_size_w: i32, extend_size_h: i32) -> Coordinate {
+    let mut x = coordinates.iter().map(|c| c.x).min().unwrap();
+    let mut y = coordinates.iter().map(|c| c.y).min().unwrap();
+    let mut w = coordinates.iter().map(|c| c.x + c.w).max().unwrap() - x;
+    let mut h = coordinates.iter().map(|c| c.y + c.h).max().unwrap() - y;
+
+    x -= extend_size_w;
+    y -= extend_size_h;
+    w += extend_size_w * 2;
+    h += extend_size_h * 2;
+
+    Coordinate { x, y, w, h }
+}

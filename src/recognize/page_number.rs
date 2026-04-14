@@ -2,6 +2,7 @@ use anyhow::Result;
 use crate::models::{ProcessedImage, Coordinate};
 use crate::config::CommonConfig;
 use crate::myutils::image::{integral_image, sum_pixel};
+use crate::myutils::math::otsu_threshold;
 
 pub struct PageNumberModule;
 
@@ -18,43 +19,101 @@ impl PageNumberModule {
         // 计算积分图
         let integral = integral_image(&processed_image.thresh)?;
 
-        // 找到所有填涂的页码点
-        let mut filled_indices = Vec::new();
+        // 精炼页码坐标
+        let refine_coors = self.refine_page_number_coor(&integral, page_numbers)?;
 
-        for (idx, coord) in page_numbers.iter().enumerate() {
-            // 扩展区域
-            let extended_coord = Coordinate {
-                x: coord.x - CommonConfig::PAGE_NUMBER_EXTEND_SIZE,
-                y: coord.y - CommonConfig::PAGE_NUMBER_EXTEND_SIZE,
-                w: coord.w + CommonConfig::PAGE_NUMBER_EXTEND_SIZE * 2,
-                h: coord.h + CommonConfig::PAGE_NUMBER_EXTEND_SIZE * 2,
-            };
+        // 构建二进制字符串
+        let mut binary_str = String::new();
 
-            let area = (extended_coord.w * extended_coord.h) as u64;
-            if area == 0 {
+        for (idx, coord) in refine_coors.iter().enumerate() {
+            // 跳过第一个坐标（索引0）
+            if idx == 0 {
                 continue;
             }
 
-            let black_pixels = sum_pixel(&integral, &extended_coord);
-            let fill_rate = black_pixels as f64 / (area as f64 * 255.0);
+            let fill_rate = calculate_fill_rate(&integral, coord)?;
 
-            if fill_rate > CommonConfig::PAGE_NUMBER_FILL_RATE {
-                filled_indices.push(idx);
+            if fill_rate >= CommonConfig::PAGE_NUMBER_FILL_RATE {
+                binary_str.push('1');
+            } else {
+                binary_str.push('0');
             }
         }
 
-        // 根据填涂的页码点计算页码
-        // 通常页码编码方式：第1位表示1，第2位表示2，第3位表示4，第4位表示8...
-        // 或者简单地：填涂的点的位置就是页码
-
-        // 这里使用简单的方式：如果有填涂的点，取第一个填涂点的索引+1作为页码
-        if !filled_indices.is_empty() {
-            // 如果有多个填涂点，可能是二进制编码
-            // 简化处理：取最小的索引+1
-            Ok(filled_indices[0] + 1)
-        } else {
-            // 如果没有填涂的点，返回第一页
-            Ok(1)
+        // 将二进制字符串转换为十进制
+        match u32::from_str_radix(&binary_str, 2) {
+            Ok(decimal) => {
+                if decimal == 0 {
+                    anyhow::bail!("页码点异常");
+                }
+                Ok(decimal as usize)
+            }
+            Err(e) => {
+                anyhow::bail!("页码转换失败: {}", e);
+            }
         }
     }
+
+    fn refine_page_number_coor(&self, integral: &Vec<Vec<u64>>, coors: &Vec<Coordinate>) -> Result<Vec<Coordinate>> {
+        let mut refined_coors = coors.clone();
+        let mut max_var = 0.0;
+
+        for move_y in -CommonConfig::PAGE_NUMBER_EXTEND_SIZE..CommonConfig::PAGE_NUMBER_EXTEND_SIZE {
+            for move_x in -CommonConfig::PAGE_NUMBER_EXTEND_SIZE..CommonConfig::PAGE_NUMBER_EXTEND_SIZE {
+                let mut fill_rates = Vec::new();
+                let mut tmp_coors = Vec::new();
+
+                for coor in coors.iter() {
+                    let new_coor = Coordinate {
+                        x: coor.x + move_x,
+                        y: coor.y + move_y,
+                        w: coor.w,
+                        h: coor.h,
+                    };
+                    let fill_rate = calculate_fill_rate(integral, &new_coor)?;
+                    fill_rates.push(fill_rate);
+                    tmp_coors.push(new_coor);
+                }
+
+                // 第一个坐标的填涂率必须大于阈值
+                if fill_rates[0] < CommonConfig::PAGE_NUMBER_FILL_RATE {
+                    continue;
+                }
+
+                let (_, variance) = otsu_threshold(&fill_rates);
+                if variance > max_var {
+                    refined_coors = tmp_coors;
+                    max_var = variance;
+                }
+            }
+        }
+
+        Ok(refined_coors)
+    }
+}
+
+/// 计算指定区域的填涂率（白色像素占比）
+fn calculate_fill_rate(integral: &Vec<Vec<u64>>, coordinate: &Coordinate) -> Result<f64> {
+    // 获取积分图尺寸
+    let integral_rows = integral.len() as i32;
+    let integral_cols = integral[0].len() as i32;
+
+    // 检查坐标是否有效
+    if coordinate.x < 0 || coordinate.y < 0 ||
+        coordinate.x + coordinate.w > integral_cols - 1 ||
+        coordinate.y + coordinate.h > integral_rows - 1 {
+        anyhow::bail!("坐标超出积分图范围");
+    }
+
+    let sum = sum_pixel(integral, coordinate);
+
+    // 计算区域面积
+    let area = coordinate.w as f64 * coordinate.h as f64;
+
+    // 计算白色像素占比（填涂率）
+    // 由于二值图中白色为255，黑色为0，所以需要将和除以255得到白色像素数量
+    let white_pixels = sum as f64 / 255.0;
+    let fill_rate = white_pixels / area;
+
+    Ok(fill_rate)
 }

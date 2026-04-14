@@ -152,6 +152,53 @@ impl AssistLocation {
         }
         points
     }
+
+    pub fn split(&self) -> Vec<AssistLocation> {
+        let mut res = Vec::new();
+        let left_groups = Self::split_with_x(&self.left);
+        let right_groups = Self::split_with_x(&self.right);
+        for i in 0..left_groups.len() {
+            res.push(AssistLocation {
+                left: left_groups[i].clone(),
+                right: right_groups[i].clone(),
+            });
+        }
+        res
+    }
+
+    pub fn merge(locations: &Vec<AssistLocation>) -> AssistLocation {
+        let mut left = Vec::new();
+        let mut right = Vec::new();
+        for assist_location in locations {
+            left.extend(assist_location.left.clone());
+            right.extend(assist_location.right.clone());
+        }
+        AssistLocation { left, right }
+    }
+
+    fn split_with_x(locations: &Vec<Coordinate>) -> Vec<Vec<Coordinate>> {
+        use std::collections::HashMap;
+
+        // 使用 HashMap 按照 x 坐标对坐标进行分组
+        let mut groups: HashMap<i32, Vec<Coordinate>> = HashMap::new();
+
+        // 遍历所有坐标，按 x 值分组
+        for coord in locations {
+            groups
+                .entry(coord.x)
+                .or_insert_with(Vec::new)
+                .push(coord.clone());
+        }
+
+        // 将 HashMap 转换为 Vec<Vec<Coordinate>>
+        let mut result: Vec<(i32, Vec<Coordinate>)> = groups.into_iter().collect();
+
+        // 按照 x 值排序
+        result.sort_by_key(|(x, _)| *x);
+
+        // 只返回坐标列表部分
+        result.into_iter().map(|(_, coords)| coords).collect()
+    }
 }
 
 /// 识别结果

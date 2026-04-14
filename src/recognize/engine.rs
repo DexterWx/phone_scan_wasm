@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use crate::config::{init_global_thread_pool, ImageProcessingConfig, VxPageConfig, VxConfig, FillPageConfig, AssistLocationPageConfig};
+use crate::config::{init_global_thread_pool, ImageProcessingConfig, VxPageConfig, VxConfig, FillPageConfig};
 use crate::models::{MarkPaper, MobileOutput};
 use crate::myutils::image::{calc_laplacian_variance, get_perspective_transform_matrix_with_boundary, get_perspective_transform_matrix_with_points, pers_trans_image, process_image};
 use crate::myutils::myjson::from_json;
@@ -104,7 +104,7 @@ impl RecEngine {
 
         // 6. 找到辅助定位点
         let mut page_mark_assist_location = page_mark.assist_location.clone();
-        let assist_location = self.assist_location_module.infer_paper::<AssistLocationPageConfig>(
+        let assist_location = self.assist_location_module.infer_paper(
             &baizheng,
             &mut page_mark_assist_location,
         )?;

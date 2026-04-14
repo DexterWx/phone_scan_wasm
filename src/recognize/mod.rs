@@ -4,3 +4,4 @@ pub mod page_number;
 pub mod fill;
 pub mod vx;
 pub mod engine;
+pub mod align;
