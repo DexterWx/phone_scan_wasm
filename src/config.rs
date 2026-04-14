@@ -23,8 +23,8 @@ impl ImageProcessingConfig {
 
     /// 形态学操作的核大小
     pub const MORPH_KERNEL: u32 = 3;
-    pub const MORPH_KERNEL_OPEN_FOR_LOCATION: u32 = 7;
-    pub const MORPH_KERNEL_CLOSE_FOR_LOCATION: u32 = 9;
+    pub const MORPH_KERNEL_OPEN_FOR_LOCATION: u32 = 3;
+    pub const MORPH_KERNEL_CLOSE_FOR_LOCATION: u32 = 5;
 
     /// 多边形逼近的epsilon因子
     pub const EPSILON_FACTOR: f64 = 0.015;

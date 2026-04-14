@@ -25,7 +25,7 @@ pub fn process_image(image: &DynamicImage, target_width: u32) -> Result<Processe
     // 3. 高斯模糊
     let blurred = imageproc::filter::gaussian_blur_f32(&gray, ImageProcessingConfig::GAUSSIAN_SIGMA);
 
-    // 4. 自适应阈值（简化版本：使用全局阈值）
+    // 4. 自适应阈值（使用 BinaryInverted 使背景为黑色，线条为白色）
     let thresh = threshold_otsu(&blurred);
 
     // 5. 形态学闭运算
@@ -44,10 +44,10 @@ pub fn process_image(image: &DynamicImage, target_width: u32) -> Result<Processe
     })
 }
 
-/// Otsu二值化
+/// Otsu二值化（反转：背景黑色，前景白色）
 fn threshold_otsu(image: &GrayImage) -> GrayImage {
     let threshold = imageproc::contrast::otsu_level(image);
-    imageproc::contrast::threshold(image, threshold, imageproc::contrast::ThresholdType::Binary)
+    imageproc::contrast::threshold(image, threshold, imageproc::contrast::ThresholdType::BinaryInverted)
 }
 
 /// 形态学闭运算
