@@ -1,0 +1,28 @@
+[package]
+name = "phone_scan_wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+image = { version = "0.25", features = ["rayon"] }
+imageproc = { version = "0.26", features = ["rayon"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tract-onnx = "0.22"
+ndarray = "0.17.2"
+rayon = "1.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 3
+debug = false

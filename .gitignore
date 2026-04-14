@@ -1,0 +1,25 @@
+# Rust
+/target
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# 测试输出
+dev/test_data/
+
+# 临时文件
+*.tmp
+*.bak
+*.log
