@@ -2,6 +2,7 @@ use anyhow::{Result, Context};
 use image::{DynamicImage, GrayImage, GenericImageView, Luma, Rgb};
 use imageproc::morphology;
 use imageproc::geometric_transformations::{warp, Projection, Interpolation};
+use nalgebra::DMatrix;
 use crate::models::{ProcessedImage, Coordinate};
 use crate::config::ImageProcessingConfig;
 
@@ -89,131 +90,95 @@ pub fn calc_laplacian_variance(image: &GrayImage) -> Result<f64> {
     Ok(variance)
 }
 
-/// 透视变换
-pub fn get_perspective_transform_matrix_with_boundary(
+/// 计算透视变换 - 使用 imageproc 的 Projection::from_control_points
+/// 使用 SVD 求解透视变换矩阵（支持任意数量的点，至少4个）
+fn solve_homography_svd(src: &[(f32, f32)], dst: &[(f32, f32)]) -> Result<[f32; 9]> {
+    let n = src.len();
+    if n < 4 {
+        anyhow::bail!("透视变换至少需要4个点");
+    }
+
+    // 构建 2n x 8 的矩阵 A 和 2n x 1 的向量 b
+    // 参考 imageproc 的实现方式
+    let mut a_data = Vec::with_capacity(2 * n * 8);
+    let mut b_data = Vec::with_capacity(2 * n);
+
+    for i in 0..n {
+        let (xf, yf) = (src[i].0 as f64, src[i].1 as f64);
+        let (x, y) = (dst[i].0 as f64, dst[i].1 as f64);
+
+        // 第一行: [0, 0, 0, -xf, -yf, -1, y*xf, y*yf]  =>  b: -y
+        a_data.extend_from_slice(&[0.0, 0.0, 0.0, -xf, -yf, -1.0, y * xf, y * yf]);
+        b_data.push(-y);
+
+        // 第二行: [xf, yf, 1, 0, 0, 0, -x*xf, -x*yf]  =>  b: x
+        a_data.extend_from_slice(&[xf, yf, 1.0, 0.0, 0.0, 0.0, -x * xf, -x * yf]);
+        b_data.push(x);
+    }
+
+    let a = DMatrix::from_row_slice(2 * n, 8, &a_data);
+    let b = DMatrix::from_row_slice(2 * n, 1, &b_data);
+
+    // 使用 SVD 求解 Ah = b
+    let svd = a.svd(true, true);
+    let h = svd.solve(&b, 1e-10)
+        .map_err(|_| anyhow::anyhow!("SVD 求解失败"))?;
+
+    // 构建 3x3 矩阵 [h0, h1, h2, h3, h4, h5, h6, h7, 1.0]
+    let mut result = [0.0f32; 9];
+    for i in 0..8 {
+        result[i] = h[i] as f32;
+    }
+    result[8] = 1.0;
+
+    Ok(result)
+}
+
+pub fn get_perspective_transform_with_boundary(
     src: &Vec<(f32, f32)>,
     dst: &Vec<(f32, f32)>,
-) -> Result<[[f64; 3]; 3]> {
+) -> Result<Projection> {
     if src.len() != 4 || dst.len() != 4 {
         anyhow::bail!("透视变换需要4个点");
     }
 
-    // 计算透视变换矩阵
-    // 使用 DLT (Direct Linear Transform) 算法
-    let mut a = vec![vec![0.0; 8]; 8];
-    let mut b = vec![0.0; 8];
-
-    for i in 0..4 {
-        let (x, y) = src[i];
-        let (u, v) = dst[i];
-
-        a[i * 2] = vec![x as f64, y as f64, 1.0, 0.0, 0.0, 0.0, -u as f64 * x as f64, -u as f64 * y as f64];
-        a[i * 2 + 1] = vec![0.0, 0.0, 0.0, x as f64, y as f64, 1.0, -v as f64 * x as f64, -v as f64 * y as f64];
-
-        b[i * 2] = u as f64;
-        b[i * 2 + 1] = v as f64;
-    }
-
-    // 使用高斯消元法求解线性方程组
-    let h = solve_linear_system(&a, &b)?;
-
-    Ok([
-        [h[0], h[1], h[2]],
-        [h[3], h[4], h[5]],
-        [h[6], h[7], 1.0],
-    ])
+    let matrix = solve_homography_svd(src, dst)?;
+    Projection::from_matrix(matrix)
+        .ok_or_else(|| anyhow::anyhow!("无法计算透视变换矩阵"))
 }
 
-pub fn get_perspective_transform_matrix_with_points(
+pub fn get_perspective_transform_with_points(
     src: &Vec<(f32, f32)>,
     dst: &Vec<(f32, f32)>,
-) -> Result<[[f64; 3]; 3]> {
-    // 如果点数大于4，只使用前4个点
-    let src_4: Vec<(f32, f32)> = src.iter().take(4).copied().collect();
-    let dst_4: Vec<(f32, f32)> = dst.iter().take(4).copied().collect();
+) -> Result<Projection> {
+    let n = src.len().min(dst.len());
 
-    if src_4.len() < 4 || dst_4.len() < 4 {
+    if n < 4 {
         anyhow::bail!("透视变换至少需要4个点");
     }
 
-    get_perspective_transform_matrix_with_boundary(&src_4, &dst_4)
+    // 使用所有点求解（最小二乘）
+    let matrix = solve_homography_svd(src, dst)?;
+    Projection::from_matrix(matrix)
+        .ok_or_else(|| anyhow::anyhow!("无法计算透视变换矩阵"))
 }
 
-/// 高斯消元法求解线性方程组
-fn solve_linear_system(a: &Vec<Vec<f64>>, b: &Vec<f64>) -> Result<Vec<f64>> {
-    let n = a.len();
-    let mut aug = vec![vec![0.0; n + 1]; n];
-
-    // 构建增广矩阵
-    for i in 0..n {
-        for j in 0..n {
-            aug[i][j] = a[i][j];
-        }
-        aug[i][n] = b[i];
-    }
-
-    // 高斯消元
-    for i in 0..n {
-        // 找到主元
-        let mut max_row = i;
-        for k in i + 1..n {
-            if aug[k][i].abs() > aug[max_row][i].abs() {
-                max_row = k;
-            }
-        }
-
-        // 交换行
-        aug.swap(i, max_row);
-
-        // 消元
-        for k in i + 1..n {
-            let factor = aug[k][i] / aug[i][i];
-            for j in i..=n {
-                aug[k][j] -= factor * aug[i][j];
-            }
-        }
-    }
-
-    // 回代
-    let mut x = vec![0.0; n];
-    for i in (0..n).rev() {
-        x[i] = aug[i][n];
-        for j in i + 1..n {
-            x[i] -= aug[i][j] * x[j];
-        }
-        x[i] /= aug[i][i];
-    }
-
-    Ok(x)
-}
-
-/// 应用透视变换 - 使用 imageproc 的优化实现
+/// 应用透视变换 - 直接使用 Projection 对象
 pub fn pers_trans_image(
     image: &mut ProcessedImage,
-    matrix: &[[f64; 3]; 3],
+    projection: &Projection,
     width: i32,
     height: i32,
 ) -> Result<()> {
     let w = width.max(0) as u32;
     let h = height.max(0) as u32;
 
-    // 将 f64 矩阵转换为 f32（imageproc 使用 f32）
-    let matrix_f32 = [
-        matrix[0][0] as f32, matrix[0][1] as f32, matrix[0][2] as f32,
-        matrix[1][0] as f32, matrix[1][1] as f32, matrix[1][2] as f32,
-        matrix[2][0] as f32, matrix[2][1] as f32, matrix[2][2] as f32,
-    ];
-
-    // 创建 Projection
-    let projection = Projection::from_matrix(matrix_f32)
-        .ok_or_else(|| anyhow::anyhow!("无法创建透视变换"))?;
-
-    // 对每个图像应用透视变换 - 使用 imageproc 的优化实现
-    image.rgb = warp(&image.rgb, &projection, Interpolation::Bilinear, Rgb([255u8, 255u8, 255u8]));
-    image.gray = warp(&image.gray, &projection, Interpolation::Bilinear, Luma([255u8]));
-    image.thresh = warp(&image.thresh, &projection, Interpolation::Nearest, Luma([255u8]));
-    image.closed = warp(&image.closed, &projection, Interpolation::Nearest, Luma([255u8]));
-    image.closed_for_location = warp(&image.closed_for_location, &projection, Interpolation::Nearest, Luma([255u8]));
+    // 对每个图像应用透视变换
+    image.rgb = warp(&image.rgb, projection, Interpolation::Bilinear, Rgb([255u8, 255u8, 255u8]));
+    image.gray = warp(&image.gray, projection, Interpolation::Bilinear, Luma([255u8]));
+    image.thresh = warp(&image.thresh, projection, Interpolation::Nearest, Luma([255u8]));
+    image.closed = warp(&image.closed, projection, Interpolation::Nearest, Luma([255u8]));
+    image.closed_for_location = warp(&image.closed_for_location, projection, Interpolation::Nearest, Luma([255u8]));
 
     // 裁剪到目标尺寸
     image.rgb = image::imageops::crop(&mut image.rgb, 0, 0, w, h).to_image();

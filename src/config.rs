@@ -59,24 +59,27 @@ pub struct AssistLocationPageConfig;
 impl AssistLocationConfig for AssistLocationPageConfig {
     fn assist_area_extend_size_h() -> i32 { 35 }
     fn assist_area_extend_size_w() -> i32 { 20 }
-    fn assist_point_min_size() -> i32 { 10 }
-    fn assist_point_max_size() -> i32 { 20 }
-    fn assist_point_min_area() -> f64 { 150.0 }
-    fn assist_point_max_area() -> f64 { 310.0 }
+    fn assist_point_min_size() -> i32 { 8 }
+    fn assist_point_max_size() -> i32 { 15 }
+    fn assist_point_min_area() -> f64 { 80.0 }
+    fn assist_point_max_area() -> f64 { 170.0 }
     fn assist_point_min_fill_ratio() -> f64 { 0.88 }
     fn assist_point_whdiff_max() -> i32 { 4 }
-    fn assist_point_x_median_diff() -> i32 { 20 }
+    fn assist_point_x_median_diff() -> i32 { 18 }
 }
 
 pub trait FillConfig {
     fn fill_rate_min() -> f64;
     fn refine_coor_range() -> i32;
+    fn gray_contrast_enhance() -> f32;
 }
 
 pub struct FillPageConfig;
 impl FillConfig for FillPageConfig {
-    fn fill_rate_min() -> f64 { 0.45 }
+    fn fill_rate_min() -> f64 { 0.4 }
     fn refine_coor_range() -> i32 { 4 }
+    fn gray_contrast_enhance() -> f32 { 10.0 }
+
 }
 
 pub struct CommonConfig;
@@ -105,12 +108,4 @@ impl VxConfig for VxPageConfig {
     fn vx_model_width() -> i32 { 50 }
     fn vx_model_padding_value() -> i32 { 0 }
     fn vx_box_expand_size() -> i32 { 4 }
-}
-
-/// 初始化全局 rayon 线程池
-pub fn init_global_thread_pool(num_threads: usize) {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build_global()
-        .ok();
 }

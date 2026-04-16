@@ -33,6 +33,29 @@ impl AssistLocationModule {
         let left_src_assist = Self::find_assist_location::<T>(&processed_image.closed, &left_area)?;
         let right_src_assist = Self::find_assist_location::<T>(&processed_image.closed, &right_area)?;
 
+        // debug模式下渲染找到的辅助定位点
+        #[cfg(debug_assertions)]
+        {
+            println!("辅助定位点寻找结果，左侧找到{}个，右侧找到{}个", left_src_assist.len(), right_src_assist.len());
+            let mut rgb = processed_image.rgb.clone();
+            let _ = crate::myutils::rendering::render_coordinates(
+                &mut rgb,
+                &left_src_assist,
+                Some(crate::myutils::rendering::RenderMode::Hollow),
+                Some(crate::myutils::rendering::Colors::red()),
+                Some(2)
+            );
+            let _ = crate::myutils::rendering::render_coordinates(
+                &mut rgb,
+                &right_src_assist,
+                Some(crate::myutils::rendering::RenderMode::Hollow),
+                Some(crate::myutils::rendering::Colors::red()),
+                Some(2)
+            );
+            let out_path = format!("dev/test_data/debug/assist_location_found_{}.jpg", assist_location.left[0].x);
+            rgb.save(&out_path).unwrap();
+        }
+
         // 允许的最大多检/漏检数量
         const MAX_DIFF: usize = 2;
 
@@ -212,7 +235,11 @@ impl AssistLocationModule {
             .min(closed.height() as i32 - coordinate.y.max(0)) as u32;
 
         let roi = image::imageops::crop_imm(closed, roi_x, roi_y, roi_w, roi_h).to_image();
-
+        // debug模式下渲染roi图，用x坐标命名。
+        if cfg!(debug_assertions) {
+            let file_name = format!("dev/test_data/debug/assist_roi_{}.jpg", coordinate.x);
+            roi.save(&file_name).unwrap();
+        }
         // 查找轮廓
         let contours = find_contours::<u32>(&roi);
 

@@ -60,6 +60,13 @@ impl Quad {
     }
 }
 
+/// 轮廓信息
+#[derive(Debug, Clone)]
+pub struct ContourInfo {
+    pub points: Vec<(i32, i32)>,
+    pub area: f64,
+}
+
 /// 处理后的图片数据
 #[derive(Debug, Clone)]
 pub struct ProcessedImage {

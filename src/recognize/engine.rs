@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use crate::config::{init_global_thread_pool, ImageProcessingConfig, VxPageConfig, VxConfig, FillPageConfig};
+use crate::config::{ImageProcessingConfig, VxPageConfig, VxConfig, FillPageConfig};
 use crate::models::{MarkPaper, MobileOutput};
-use crate::myutils::image::{calc_laplacian_variance, get_perspective_transform_matrix_with_boundary, get_perspective_transform_matrix_with_points, pers_trans_image, process_image};
+use crate::myutils::image::{calc_laplacian_variance, get_perspective_transform_with_boundary, get_perspective_transform_with_points, pers_trans_image, process_image};
 use crate::myutils::myjson::from_json;
 use crate::recognize::fill::RecFillModule;
 use crate::recognize::location::LocationModule;
@@ -22,7 +22,6 @@ pub struct RecEngine {
 impl RecEngine {
     pub fn new_paper(mobile_input: &String) -> Result<Self> {
         let mut mark_paper: MarkPaper = from_json(mobile_input)?;
-        init_global_thread_pool(mark_paper.num_threads);
         mark_paper.init_sort();
         Ok(Self {
             location_module: LocationModule::new(),
@@ -68,9 +67,9 @@ impl RecEngine {
             let _ = render_image.save(debug_path);
         }
 
-        // 3. 获取变换矩阵
+        // 3. 获取变换
         let tg_boundary = &mark.boundary;
-        let pers_trans_matrix = get_perspective_transform_matrix_with_boundary(
+        let projection = get_perspective_transform_with_boundary(
             &location.to_points(),
             &tg_boundary.to_points(),
         )?;
@@ -78,7 +77,7 @@ impl RecEngine {
         // 4. 第一次变换
         pers_trans_image(
             &mut baizheng,
-            &pers_trans_matrix,
+            &projection,
             tg_boundary.x + tg_boundary.w + ImageProcessingConfig::BOUNDARY_EXTEND_SIZE,
             tg_boundary.y + tg_boundary.h + ImageProcessingConfig::BOUNDARY_EXTEND_SIZE,
         )?;
@@ -109,18 +108,18 @@ impl RecEngine {
             &mut page_mark_assist_location,
         )?;
 
-        // 7. 获取变换矩阵
+        // 7. 获取变换
         let mut src = assist_location.to_points();
         let mut target = page_mark_assist_location.to_points();
         src.extend(mark.boundary.to_points());
         target.extend(mark.boundary.to_points());
 
-        let pers_trans_matrix = get_perspective_transform_matrix_with_points(&src, &target)?;
+        let projection = get_perspective_transform_with_points(&src, &target)?;
 
         // 8. 第二次变换
         pers_trans_image(
             &mut baizheng,
-            &pers_trans_matrix,
+            &projection,
             mark.boundary.x + mark.boundary.w + ImageProcessingConfig::BOUNDARY_EXTEND_SIZE,
             mark.boundary.y + mark.boundary.h + ImageProcessingConfig::BOUNDARY_EXTEND_SIZE,
         )?;
@@ -162,11 +161,11 @@ impl RecEngine {
         // 渲染最终结果
         #[cfg(debug_assertions)]
         {
-            use crate::myutils::rendering::{render_output, render_assist_location, RenderMode, Colors};
+            use crate::myutils::rendering::{render_output, RenderMode, Colors};
 
             let mut render_image = image::DynamicImage::ImageLuma8(baizheng.gray.clone()).to_rgb8();
-            let _ = render_output(&mut render_image, &mobile_output, RenderMode::Hollow, Colors::orange(), 2);
-            let _ = render_assist_location(&mut render_image, &page_mark_assist_location, RenderMode::Hollow, Colors::red(), 1);
+            let _ = render_output(&mut render_image, &mobile_output, &page_mark_assist_location, Some(RenderMode::Hollow), Some(Colors::orange()), Some(2), None);
+            // let _ = render_assist_location(&mut render_image, &page_mark_assist_location, RenderMode::Hollow, Colors::red(), 2);
 
             let debug_path = "dev/test_data/debug/z_render_out.jpg";
             let _ = render_image.save(debug_path);

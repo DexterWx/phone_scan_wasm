@@ -23,3 +23,11 @@ dev/test_data/
 *.tmp
 *.bak
 *.log
+
+# 编译wasm输出
+pkg/
+.VSCodeCounter/
+
+# node脚本
+node_modules/
+package*json

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crate::models::{Quad, ContourInfo};
 
 /// 实现Otsu阈值算法，用于计算一维直方图的最佳分割阈值
 pub fn otsu_threshold(values: &[f64]) -> (f64, f64) {
@@ -89,4 +90,83 @@ pub fn match_points(points1: &Vec<(f32, f32)>, points2: &Vec<(f32, f32)>) -> Res
         res.push(points2[min_index]);
     }
     Ok(res)
+}
+
+/// 计算两个 i32 点之间的欧氏距离
+pub fn distance_point2i(a: &(i32, i32), b: &(i32, i32)) -> f64 {
+    let dx = (a.0 - b.0) as f64;
+    let dy = (a.1 - b.1) as f64;
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// 计算点到线段的距离
+fn point_to_segment_distance(point: (i32, i32), line_start: (i32, i32), line_end: (i32, i32)) -> f64 {
+    let px = point.0 as f64;
+    let py = point.1 as f64;
+    let x1 = line_start.0 as f64;
+    let y1 = line_start.1 as f64;
+    let x2 = line_end.0 as f64;
+    let y2 = line_end.1 as f64;
+
+    let line_length_sq = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+
+    if line_length_sq == 0.0 {
+        return ((px - x1) * (px - x1) + (py - y1) * (py - y1)).sqrt();
+    }
+
+    let t = (((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / line_length_sq)
+        .max(0.0)
+        .min(1.0);
+
+    let proj_x = x1 + t * (x2 - x1);
+    let proj_y = y1 + t * (y2 - y1);
+
+    ((px - proj_x) * (px - proj_x) + (py - proj_y) * (py - proj_y)).sqrt()
+}
+
+/// 计算单个点到 Quad 四条边的最近距离
+pub fn point_to_quad_min_distance(point: (i32, i32), boundary: &Quad) -> f64 {
+    let edges = [
+        (boundary.points[0], boundary.points[1]),
+        (boundary.points[1], boundary.points[2]),
+        (boundary.points[2], boundary.points[3]),
+        (boundary.points[3], boundary.points[0]),
+    ];
+    edges
+        .iter()
+        .map(|&(p1, p2)| point_to_segment_distance(point, p1, p2))
+        .fold(f64::MAX, f64::min)
+}
+
+/// 计算 ContourInfo 上所有点到 Quad 四条边的平均最近距离
+pub fn avg_distance_contour_to_quad(boundary: &Quad, contour: &ContourInfo) -> f64 {
+    if contour.points.is_empty() {
+        return f64::MAX;
+    }
+
+    let edges = [
+        (boundary.points[0], boundary.points[1]),
+        (boundary.points[1], boundary.points[2]),
+        (boundary.points[2], boundary.points[3]),
+        (boundary.points[3], boundary.points[0]),
+    ];
+
+    let mut total_distance = 0.0;
+    let mut count = 0;
+
+    for &point in &contour.points {
+        let min_distance = edges
+            .iter()
+            .map(|&(p1, p2)| point_to_segment_distance(point, p1, p2))
+            .fold(f64::MAX, f64::min);
+
+        total_distance += min_distance;
+        count += 1;
+    }
+
+    if count == 0 {
+        return f64::MAX;
+    }
+
+    total_distance / count as f64
 }
