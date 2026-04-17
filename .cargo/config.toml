@@ -1,0 +1,8 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+  # 设置 wasm 初始内存为 256 pages (16MB)
+  # 相机帧 1920x1080x4 ≈ 8MB，加上引擎数据需要更多
+  "-C", "link-arg=--initial-memory=16777216",
+  # 最大内存 512MB（可选，避免无限增长）
+  "-C", "link-arg=--max-memory=536870912",
+]

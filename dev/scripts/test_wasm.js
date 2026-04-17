@@ -1,11 +1,11 @@
 /**
  * WASM 测试脚本 - Node.js 版本
  *
- * 用法: node test_wasm.js <输入图片路径> <输出目录>
- * 示例: node test_wasm.js ../../dev/test_data/cards/270716/test.jpg ./output
+ * 用法: node test_wasm.js <配置文件路径> <输入图片路径> <输出目录>
+ * 示例: node test_wasm.js ../../dev/test_data/cards/270716/test.json ../../dev/test_data/cards/270716/test.jpg ./output
  */
 
-import init, { init_engine, inference_paper_and_return_rgb } from '../../pkg/phone_scan_wasm.js';
+import init, { init_engine, inference_from_rgba } from '../../pkg/phone_scan_wasm.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -32,22 +32,29 @@ async function testWasm(configPath, inputImagePath, outputDir) {
 
         // 3. 初始化引擎
         console.log('3. 初始化识别引擎...');
-        init_engine(configText);
+        const initResult = JSON.parse(init_engine(configText));
+        if (initResult.code !== 0) {
+            console.error(`✗ 引擎初始化失败: ${initResult.message}`);
+            process.exit(1);
+        }
         console.log('✓ 引擎初始化成功\n');
 
-        // 4. 读取输入图片
+        // 4. 读取输入图片并解码为 RGBA（模拟小程序 CameraFrame）
         console.log('4. 读取输入图片...');
-        const imageData = fs.readFileSync(inputImagePath);
-        console.log(`✓ 图片读取成功: ${inputImagePath} (${imageData.length} bytes)\n`);
+        const jimpImage = await Jimp.read(inputImagePath);
+        const width = jimpImage.width;
+        const height = jimpImage.height;
+        const rgbaData = new Uint8Array(jimpImage.bitmap.data);
+        console.log(`✓ 图片读取成功: ${inputImagePath} (${width}x${height}, RGBA ${rgbaData.length} bytes)\n`);
 
-        // 5. 执行识别
+        // 5. 执行识别（使用 RGBA 接口，和小程序调用方式一致）
         console.log('5. 执行识别...');
         const startTime = Date.now();
-        const result = inference_paper_and_return_rgb(imageData);
+        const result = inference_from_rgba(rgbaData, width, height);
         const endTime = Date.now();
         console.log(`✓ 识别完成，耗时: ${endTime - startTime}ms\n`);
 
-        // 6. 创建输出目录
+        // 6. 创建输出��录
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
         }
@@ -68,6 +75,10 @@ async function testWasm(configPath, inputImagePath, outputDir) {
         const resultObj = JSON.parse(result.json);
         console.log(`code: ${resultObj.code}`);
         console.log(`message: ${resultObj.message}`);
+        if (resultObj.code !== 0) {
+            console.error('✗ 识别失败');
+            process.exit(1);
+        }
         console.log(`page_number: ${resultObj.page_number}`);
         console.log(`lpls: ${resultObj.lpls}`);
         console.log(`rec_results 数量: ${resultObj.rec_results.length}`);

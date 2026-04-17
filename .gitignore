@@ -25,7 +25,7 @@ dev/test_data/
 *.log
 
 # 编译wasm输出
-pkg/
+pkg*
 .VSCodeCounter/
 
 # node脚本

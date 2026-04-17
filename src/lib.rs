@@ -13,15 +13,15 @@ mod tests {
 
     #[test]
     fn test_paper() -> Result<()> {
-        let scan_id = "270716";
+        let scan_id = "270715";
         let scan_path = format!("dev/test_data/cards/{scan_id}/test.json");
         let img_path = format!("dev/test_data/cards/{scan_id}/test.jpg");
         let image = imread(&img_path)?;
 
         let scan_string = fs::read_to_string(scan_path)?;
 
-        let engine = engine::RecEngine::new_paper(&scan_string)?;
-        let (res, _rgb) = engine.inference_paper(&image)?;
+        let engine = engine::RecEngine::new(&scan_string)?;
+        let (res, _rgb) = engine.inference(&image)?;
         println!("lpls: {}", res.lpls);
 
         fs::write(format!("dev/test_data/out/{scan_id}.json"), to_json(&res)?)?;
@@ -78,87 +78,97 @@ mod build {
         }
     }
 
+    fn make_failed_result(message: String) -> WasmInferenceResult {
+        let output = MobileOutput {
+            code: 1,
+            message,
+            page_number: 0,
+            image_index: 0,
+            rec_results: vec![],
+            lpls: 0.0,
+        };
+        WasmInferenceResult {
+            json: to_json(&output).unwrap_or_else(|_| "{}".to_string()),
+            image_data: vec![],
+            width: 0,
+            height: 0,
+        }
+    }
+
+    fn do_inference(image: &image::DynamicImage) -> WasmInferenceResult {
+        let engine_lock = match ENGINE.lock() {
+            Ok(lock) => lock,
+            Err(e) => return make_failed_result(format!("获取引擎锁失败: {}", e)),
+        };
+
+        let engine = match engine_lock.as_ref() {
+            Some(e) => e,
+            None => return make_failed_result("请先调用 init_engine 初始化引擎".to_string()),
+        };
+
+        let (output, rgb) = match engine.inference(image) {
+            Ok(result) => result,
+            Err(e) => return make_failed_result(format!("识别失败: {}", e)),
+        };
+
+        let json = match to_json(&output) {
+            Ok(j) => j,
+            Err(e) => return make_failed_result(format!("JSON 序列化失败: {}", e)),
+        };
+
+        let width = rgb.width();
+        let height = rgb.height();
+        let image_data = rgb.into_raw();
+
+        WasmInferenceResult { json, image_data, width, height }
+    }
+
     /// 初始化引擎
     ///
     /// 参数:
     /// - scan_json: 扫描配置 JSON 字符串
     ///
     /// 返回:
-    /// - 成功返回 Ok(())，失败返回错误信息
+    /// - JSON 字符串: {"code": 0, "message": "初始化成功"} 或 {"code": 1, "message": "错误信息"}
     #[wasm_bindgen]
-    pub fn init_engine(scan_json: &str) -> Result<(), JsValue> {
-        // 设置 panic hook，在浏览器控制台显示更友好的错误信息
-        console_error_panic_hook::set_once();
+    pub fn init_engine(scan_json: &str) -> String {
 
-        let engine = RecEngine::new_paper(&scan_json.to_string())
-            .map_err(|e| JsValue::from_str(&format!("初始化引擎失败: {}", e)))?;
-
-        let mut engine_lock = ENGINE.lock()
-            .map_err(|e| JsValue::from_str(&format!("获取引擎锁失败: {}", e)))?;
-
-        *engine_lock = Some(engine);
-
-        Ok(())
-    }
-
-    /// 单张图片推理接口（返回 RGB 图片）
-    ///
-    /// 参数:
-    /// - image_data: 图片数据（支持 JPEG、PNG 等格式）
-    ///
-    /// 返回:
-    /// - WasmInferenceResult: 包含 JSON 结果和 RGB 图片数据
-    #[wasm_bindgen]
-    pub fn inference_paper_and_return_rgb(image_data: &[u8]) -> Result<WasmInferenceResult, JsValue> {
-        // 创建失败输出
-        let make_failed_output = |message: String| -> MobileOutput {
-            MobileOutput {
-                code: 1,
-                message,
-                page_number: 0,
-                image_index: 0,
-                rec_results: vec![],
-                lpls: 0.0,
-            }
+        let engine = match RecEngine::new(&scan_json.to_string()) {
+            Ok(e) => e,
+            Err(e) => return format!("{{\"code\":1,\"message\":\"初始化引擎失败: {}\"}}", e),
         };
 
-        // 检查引擎是否初始化
-        let engine_lock = ENGINE.lock()
-            .map_err(|e| JsValue::from_str(&format!("获取引擎锁失败: {}", e)))?;
+        let mut engine_lock = match ENGINE.lock() {
+            Ok(lock) => lock,
+            Err(e) => return format!("{{\"code\":1,\"message\":\"获取引擎锁失败: {}\"}}", e),
+        };
 
-        let engine = engine_lock.as_ref()
-            .ok_or_else(|| JsValue::from_str("请先调用 init_engine 初始化引擎"))?;
+        *engine_lock = Some(engine);
+        "{\"code\":0,\"message\":\"初始化成功\"}".to_string()
+    }
 
-        // 解码图片
-        let image = image::load_from_memory(image_data)
-            .map_err(|e| {
-                let output = make_failed_output(format!("图片解码失败: {}", e));
-                let json = to_json(&output).unwrap_or_else(|_| "{}".to_string());
-                JsValue::from_str(&json)
-            })?;
+    /// 从 RGBA 原始帧数据推理（小程序 CameraFrame）
+    ///
+    /// 参数:
+    /// - rgba_data: RGBA 像素数据 (Uint8Array)，长度应为 width * height * 4
+    /// - width: 图片宽度
+    /// - height: 图片高度
+    #[wasm_bindgen]
+    pub fn inference_from_rgba(rgba_data: &[u8], width: u32, height: u32) -> WasmInferenceResult {
+        let expected_len = (width * height * 4) as usize;
+        if rgba_data.len() != expected_len {
+            return make_failed_result(format!(
+                "RGBA 数据长度不匹配: 期望 {} ({}x{}x4), 实际 {}",
+                expected_len, width, height, rgba_data.len()
+            ));
+        }
 
-        // 执行识别
-        let (output, rgb) = engine.inference_paper(&image)
-            .map_err(|e| {
-                let output = make_failed_output(format!("识别失败: {}", e));
-                let json = to_json(&output).unwrap_or_else(|_| "{}".to_string());
-                JsValue::from_str(&json)
-            })?;
+        let rgba_image = match image::RgbaImage::from_raw(width, height, rgba_data.to_vec()) {
+            Some(img) => img,
+            None => return make_failed_result("无法从 RGBA 数据创建图片".to_string()),
+        };
 
-        // 转换 JSON
-        let json = to_json(&output)
-            .map_err(|e| JsValue::from_str(&format!("JSON 序列化失败: {}", e)))?;
-
-        // 转换 RGB 图片为字节数组
-        let width = rgb.width();
-        let height = rgb.height();
-        let image_data = rgb.into_raw();
-
-        Ok(WasmInferenceResult {
-            json,
-            image_data,
-            width,
-            height,
-        })
+        let image = image::DynamicImage::ImageRgba8(rgba_image);
+        do_inference(&image)
     }
 }

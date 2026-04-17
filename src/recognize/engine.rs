@@ -20,7 +20,7 @@ pub struct RecEngine {
 }
 
 impl RecEngine {
-    pub fn new_paper(mobile_input: &String) -> Result<Self> {
+    pub fn new(mobile_input: &String) -> Result<Self> {
         let mut mark_paper: MarkPaper = from_json(mobile_input)?;
         mark_paper.init_sort();
         Ok(Self {
@@ -33,7 +33,7 @@ impl RecEngine {
         })
     }
 
-    pub fn inference_paper(&self, image: &image::DynamicImage) -> Result<(MobileOutput, image::RgbImage)> {
+    pub fn inference(&self, image: &image::DynamicImage) -> Result<(MobileOutput, image::RgbImage)> {
         let mark = self.mark_paper.as_ref().context("引擎未初始化")?;
         let mark = &mark.resize(ImageProcessingConfig::PAPER_SCAN_TARGET_SCALE);
         let target_width = if mark.is_a4() {

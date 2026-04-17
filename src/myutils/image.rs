@@ -1,5 +1,6 @@
 use anyhow::{Result, Context};
 use image::{DynamicImage, GrayImage, GenericImageView, Luma, Rgb};
+use imageproc::contrast::adaptive_threshold;
 use imageproc::morphology;
 use imageproc::geometric_transformations::{warp, Projection, Interpolation};
 use nalgebra::DMatrix;
@@ -27,7 +28,14 @@ pub fn process_image(image: &DynamicImage, target_width: u32) -> Result<Processe
     let blurred = imageproc::filter::gaussian_blur_f32(&gray, ImageProcessingConfig::GAUSSIAN_SIGMA);
 
     // 4. 自适应阈值（使用 BinaryInverted 使背景为黑色，线条为白色）
-    let thresh = threshold_otsu(&blurred);
+    let thresh = threshold_adaptive(&blurred);
+    // let thresh = threshold_otsu(&blurred);
+    // debug 二值图
+    #[cfg(debug_assertions)]
+    {
+        let debug_path = "dev/test_data/debug/z_processed_thresh.jpg";
+        let _ = thresh.save(debug_path);
+    }
 
     // 5. 形态学闭运算
     let closed = morphology_close(&thresh, ImageProcessingConfig::MORPH_KERNEL);
@@ -49,6 +57,16 @@ pub fn process_image(image: &DynamicImage, target_width: u32) -> Result<Processe
 fn threshold_otsu(image: &GrayImage) -> GrayImage {
     let threshold = imageproc::contrast::otsu_level(image);
     imageproc::contrast::threshold(image, threshold, imageproc::contrast::ThresholdType::BinaryInverted)
+}
+
+/// 自适应阈值（反转：背景黑色，前景白色）
+fn threshold_adaptive(image: &GrayImage) -> GrayImage {
+    let block_radius = 9; // 可调（窗口大小 = 2r+1）
+    let delta = 5;        // 可调（阈值偏移）
+
+    let mut thresh = adaptive_threshold(image, block_radius, delta);
+    image::imageops::invert(&mut thresh);
+    thresh
 }
 
 /// 形态学闭运算
