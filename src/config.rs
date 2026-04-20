@@ -9,11 +9,11 @@ impl ImageProcessingConfig {
     pub const GAUSSIAN_SIGMA: f32 = 1.0;
 
     /// 统一输入图像的宽度
-    pub const TARGET_WIDTH_A4: u32 = 2400;
-    pub const TARGET_WIDTH_A3: u32 = 4000;
+    pub const TARGET_WIDTH_A4: u32 = 1200;
+    pub const TARGET_WIDTH_A3: u32 = 2000;
 
     /// 目标图片缩放比例
-    pub const PAPER_SCAN_TARGET_SCALE: f64 = 2.0;
+    pub const PAPER_SCAN_TARGET_SCALE: f64 = 1.0;
 
     /// 自适应阈值的块大小
     pub const BLOCK_SIZE: u32 = 51;
@@ -22,7 +22,7 @@ impl ImageProcessingConfig {
     pub const C: i32 = 5;
 
     /// 形态学操作的核大小
-    pub const MORPH_KERNEL: u32 = 3;
+    pub const MORPH_KERNEL: u32 = 1;
     pub const MORPH_KERNEL_OPEN_FOR_LOCATION: u32 = 3;
     pub const MORPH_KERNEL_CLOSE_FOR_LOCATION: u32 = 5;
 
@@ -57,15 +57,15 @@ pub trait AssistLocationConfig {
 
 pub struct AssistLocationPageConfig;
 impl AssistLocationConfig for AssistLocationPageConfig {
-    fn assist_area_extend_size_h() -> i32 { 35 }
-    fn assist_area_extend_size_w() -> i32 { 20 }
-    fn assist_point_min_size() -> i32 { 8 }
-    fn assist_point_max_size() -> i32 { 15 }
-    fn assist_point_min_area() -> f64 { 80.0 }
-    fn assist_point_max_area() -> f64 { 170.0 }
+    fn assist_area_extend_size_h() -> i32 { 17 }
+    fn assist_area_extend_size_w() -> i32 { 10 }
+    fn assist_point_min_size() -> i32 { 4 }
+    fn assist_point_max_size() -> i32 { 8 }
+    fn assist_point_min_area() -> f64 { 20.0 }
+    fn assist_point_max_area() -> f64 { 60.0 }
     fn assist_point_min_fill_ratio() -> f64 { 0.88 }
-    fn assist_point_whdiff_max() -> i32 { 4 }
-    fn assist_point_x_median_diff() -> i32 { 18 }
+    fn assist_point_whdiff_max() -> i32 { 2 }
+    fn assist_point_x_median_diff() -> i32 { 9 }
 }
 
 pub trait FillConfig {

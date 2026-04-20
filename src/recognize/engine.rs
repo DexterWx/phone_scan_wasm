@@ -49,7 +49,7 @@ impl RecEngine {
         #[cfg(debug_assertions)]
         {
             let debug_path = "dev/test_data/debug/z_processed_closed.jpg";
-            let _ = processed_image.closed_for_location.save(debug_path);
+            let _ = processed_image.closed.save(debug_path);
         }
 
         let mut baizheng = processed_image.clone();

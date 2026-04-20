@@ -73,8 +73,7 @@ pub struct ProcessedImage {
     pub rgb: image::RgbImage,
     pub gray: image::GrayImage,
     pub thresh: image::GrayImage,
-    pub closed: image::GrayImage,
-    pub closed_for_location: image::GrayImage,
+    pub closed: image::GrayImage
 }
 
 /// 识别类型枚举

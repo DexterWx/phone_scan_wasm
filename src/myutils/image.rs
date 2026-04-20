@@ -39,17 +39,11 @@ pub fn process_image(image: &DynamicImage, target_width: u32) -> Result<Processe
 
     // 5. 形态学闭运算
     let closed = morphology_close(&thresh, ImageProcessingConfig::MORPH_KERNEL);
-
-    // 6. 针对定位的形态学处理
-    let opened_for_location = morphology_open(&thresh, ImageProcessingConfig::MORPH_KERNEL_OPEN_FOR_LOCATION);
-    let closed_for_location = morphology_close(&opened_for_location, ImageProcessingConfig::MORPH_KERNEL_CLOSE_FOR_LOCATION);
-
     Ok(ProcessedImage {
         rgb,
         gray,
         thresh,
-        closed,
-        closed_for_location,
+        closed
     })
 }
 
@@ -196,14 +190,12 @@ pub fn pers_trans_image(
     image.gray = warp(&image.gray, projection, Interpolation::Bilinear, Luma([255u8]));
     image.thresh = warp(&image.thresh, projection, Interpolation::Nearest, Luma([255u8]));
     image.closed = warp(&image.closed, projection, Interpolation::Nearest, Luma([255u8]));
-    image.closed_for_location = warp(&image.closed_for_location, projection, Interpolation::Nearest, Luma([255u8]));
 
     // 裁剪到目标尺寸
     image.rgb = image::imageops::crop(&mut image.rgb, 0, 0, w, h).to_image();
     image.gray = image::imageops::crop(&mut image.gray, 0, 0, w, h).to_image();
     image.thresh = image::imageops::crop(&mut image.thresh, 0, 0, w, h).to_image();
     image.closed = image::imageops::crop(&mut image.closed, 0, 0, w, h).to_image();
-    image.closed_for_location = image::imageops::crop(&mut image.closed_for_location, 0, 0, w, h).to_image();
 
     Ok(())
 }

@@ -48,27 +48,83 @@ output = output.replace(/^__wbg_init\s*;?\s*$/gm, '');
 output = output.replace(/\bWebAssembly\b/g, 'WXWebAssembly');
 
 // 5. 消除所有 typeof 表达式（小程序 Babel 会把 typeof 转成 require('@babel/runtime/helpers/typeof')）
+// 但是 TextDecoder/TextEncoder 的 typeof 检查必须保留，因为小程序环境中这些 API 不存在
 
-// 5a. TextDecoder/TextEncoder 在小程序环境一定存在，直接替换初始化
+// 5a. 添加 TextDecoder polyfill（微信小程序不支持 TextDecoder）
+// 保留 typeof 检查，因为直接访问 TextDecoder 会报错
 output = output.replace(
     /const cachedTextDecoder = \(typeof TextDecoder[\s\S]*?\);/,
-    "const cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });"
-);
-output = output.replace(
-    /if \(typeof TextDecoder !== 'undefined'\) \{\s*cachedTextDecoder\.decode\(\)\s*\}\s*;?/,
-    'cachedTextDecoder.decode();'
-);
-// 也处理 typeof 已被替换后的版本
-output = output.replace(
-    /if \(\(TextDecoder !== void 0\)\) \{\s*cachedTextDecoder\.decode\(\)\s*\}\s*;?/,
-    'cachedTextDecoder.decode();'
-);
-output = output.replace(
-    /const cachedTextEncoder = \(typeof TextEncoder[\s\S]*?\);/,
-    "const cachedTextEncoder = new TextEncoder('utf-8');"
+    `// TextDecoder polyfill for WeChat MiniProgram
+const cachedTextDecoder = (typeof TextDecoder !== 'undefined')
+    ? new TextDecoder('utf-8', { ignoreBOM: true, fatal: true })
+    : {
+        decode: function(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let result = '';
+            for (let i = 0; i < bytes.length; i++) {
+                const byte = bytes[i];
+                if (byte < 128) {
+                    result += String.fromCharCode(byte);
+                } else if (byte < 224) {
+                    result += String.fromCharCode(((byte & 31) << 6) | (bytes[++i] & 63));
+                } else if (byte < 240) {
+                    result += String.fromCharCode(((byte & 15) << 12) | ((bytes[++i] & 63) << 6) | (bytes[++i] & 63));
+                } else {
+                    const codePoint = ((byte & 7) << 18) | ((bytes[++i] & 63) << 12) | ((bytes[++i] & 63) << 6) | (bytes[++i] & 63);
+                    result += String.fromCharCode(0xD800 + ((codePoint - 0x10000) >> 10), 0xDC00 + ((codePoint - 0x10000) & 0x3FF));
+                }
+            }
+            return result;
+        }
+    };`
 );
 
-// 5b. encodeString 整块替换（含 typeof 检查和多行三元表达式）
+// 5b. 添加 TextEncoder polyfill
+output = output.replace(
+    /const cachedTextEncoder = \(typeof TextEncoder[^\n]+\);/,
+    `// TextEncoder polyfill for WeChat MiniProgram
+const cachedTextEncoder = (typeof TextEncoder !== 'undefined')
+    ? new TextEncoder('utf-8')
+    : {
+        encode: function(str) {
+            const bytes = [];
+            for (let i = 0; i < str.length; i++) {
+                let charCode = str.charCodeAt(i);
+                if (charCode < 128) {
+                    bytes.push(charCode);
+                } else if (charCode < 2048) {
+                    bytes.push(192 | (charCode >> 6), 128 | (charCode & 63));
+                } else if (charCode < 55296 || charCode >= 57344) {
+                    bytes.push(224 | (charCode >> 12), 128 | ((charCode >> 6) & 63), 128 | (charCode & 63));
+                } else {
+                    i++;
+                    charCode = 0x10000 + (((charCode & 0x3FF) << 10) | (str.charCodeAt(i) & 0x3FF));
+                    bytes.push(240 | (charCode >> 18), 128 | ((charCode >> 12) & 63), 128 | ((charCode >> 6) & 63), 128 | (charCode & 63));
+                }
+            }
+            return new Uint8Array(bytes);
+        }
+    };`
+);
+
+// 5c. 移除 TextDecoder 的初始化调用
+output = output.replace(
+    /if \(typeof TextDecoder !== 'undefined'\) \{\s*cachedTextDecoder\.decode\(\)\s*\}\s*;?/,
+    '// TextDecoder polyfill initialized above'
+);
+
+// 5c2. 修复 getUint8ArrayMemory0 以正确处理内存增长
+output = output.replace(
+    /function getUint8ArrayMemory0\(\) \{\s*if \(cachedUint8ArrayMemory0 === null \|\| cachedUint8ArrayMemory0\.byteLength === 0\) \{\s*cachedUint8ArrayMemory0 = new Uint8Array\(wasm\.memory\.buffer\);\s*\}\s*return cachedUint8ArrayMemory0;\s*\}/,
+    `function getUint8ArrayMemory0() {
+    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0 || cachedUint8ArrayMemory0.buffer !== wasm.memory.buffer) {
+        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+    }
+    return cachedUint8ArrayMemory0;
+}`
+);
+
+// 5d. encodeString 整块替换（含 typeof 检查和多行三元表达式）
 output = output.replace(
     /const encodeString = \(typeof cachedTextEncoder\.encodeInto[\s\S]*?^\}\);/m,
     `const encodeString = cachedTextEncoder.encodeInto
@@ -80,7 +136,12 @@ output = output.replace(
     };`
 );
 
-// 5c. FinalizationRegistry（可能不存在于某些小程序环境）
+// 5e. 现在替换其他所有 typeof 表达式（但不包括 TextDecoder/TextEncoder）
+// 先用占位符保护 TextDecoder/TextEncoder 的 typeof 检查
+output = output.replace(/typeof TextDecoder/g, '__TYPEOF_TEXTDECODER__');
+output = output.replace(/typeof TextEncoder/g, '__TYPEOF_TEXTENCODER__');
+
+// 5f. FinalizationRegistry（可能不存在于某些小程序环境）
 output = output.replace(
     /\(typeof FinalizationRegistry === 'undefined'\)/g,
     '(!globalThis.FinalizationRegistry)'
@@ -103,7 +164,9 @@ output = output.replace(/typeof\s+(\w+)\s*!==\s*'undefined'/g, '($1 !== void 0)'
 output = output.replace(/typeof\s+(\w+)\s*===\s*'function'/g, '($1 != null && $1.call !== void 0)');
 output = output.replace(/typeof\s+(\w+)\s*===\s*'string'/g, '($1 != null && $1.constructor === String)');
 
-// 6. 替换 __wbg_init：移除 import.meta.url / fetch / Response / URL
+// 5g. 恢复 TextDecoder/TextEncoder 的 typeof 检查
+output = output.replace(/__TYPEOF_TEXTDECODER__/g, 'typeof TextDecoder');
+output = output.replace(/__TYPEOF_TEXTENCODER__/g, 'typeof TextEncoder');
 const initFuncRe = /async function __wbg_init\(module_or_path\)[\s\S]*?^}/m;
 output = output.replace(initFuncRe, `async function __wbg_init(module_or_path) {
     if (wasm !== void 0) return wasm;

@@ -13,8 +13,8 @@ impl LocationModule {
     }
 
     pub fn infer(&self, processed_image: &ProcessedImage) -> Result<Quad> {
-        let mut boundaries = self.detect_boundary(&processed_image.closed_for_location)?;
-        let best_idx = self.select_best_contour_index(&boundaries, &processed_image.closed_for_location)?;
+        let mut boundaries = self.detect_boundary(&processed_image.closed)?;
+        let best_idx = self.select_best_contour_index(&boundaries, &processed_image.closed)?;
         let boundary = self.contour_to_quad(&mut boundaries[best_idx])?;
         let valid = self.validate_boundary(&boundary, &boundaries[best_idx]);
         if !valid {
